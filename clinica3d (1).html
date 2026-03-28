@@ -1,0 +1,860 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Clínica 3D Interactiva</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0d1117;overflow:hidden;font-family:'Segoe UI',sans-serif}
+#c{display:block;width:100vw;height:100vh}
+#ui{position:fixed;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:flex-start;padding:14px 18px;pointer-events:none;z-index:10}
+.card{background:rgba(10,14,20,0.88);border:1px solid rgba(255,255,255,0.13);border-radius:10px;padding:11px 16px;backdrop-filter:blur(12px)}
+.card h1{font-size:13px;font-weight:700;color:#e6edf3;letter-spacing:2.5px;text-transform:uppercase}
+.card p{font-size:9.5px;color:#7d8590;margin-top:2px;letter-spacing:1px}
+.ctrl{pointer-events:all}
+.ctrl h3{font-size:8.5px;color:#7d8590;letter-spacing:2px;text-transform:uppercase;margin-bottom:7px}
+.cr{display:flex;align-items:center;gap:7px;margin-bottom:4px;font-size:9.5px;color:#e6edf3}
+kbd{background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:4px;padding:1px 5px;font-size:8.5px;color:#adb5bd}
+#btns{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);display:flex;gap:8px;z-index:10;flex-wrap:wrap;justify-content:center}
+.vb{background:rgba(10,14,20,0.88);border:1px solid rgba(255,255,255,0.15);border-radius:8px;padding:7px 15px;font-size:10.5px;color:#e6edf3;cursor:pointer;letter-spacing:1px;text-transform:uppercase;backdrop-filter:blur(10px);transition:all .18s}
+.vb:hover{background:rgba(255,255,255,0.1);border-color:rgba(255,255,255,0.3)}
+.vb.on{background:rgba(59,130,246,0.3);border-color:#3b82f6;color:#93c5fd}
+#ld{position:fixed;inset:0;background:#0d1117;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:100}
+#ld h2{color:#e6edf3;font-size:15px;letter-spacing:3px;text-transform:uppercase;margin-bottom:18px}
+.lb{width:220px;height:2px;background:rgba(255,255,255,0.1);border-radius:2px;overflow:hidden}
+.lf{height:100%;background:#3b82f6;border-radius:2px;animation:lda 2.4s ease forwards}
+@keyframes lda{from{width:0}to{width:100%}}
+#info{position:fixed;bottom:64px;left:50%;transform:translateX(-50%);background:rgba(10,14,20,0.88);border:1px solid rgba(59,130,246,0.4);border-radius:8px;padding:6px 14px;font-size:10px;color:#93c5fd;letter-spacing:1px;z-index:10;pointer-events:none;opacity:0;transition:opacity .3s}
+</style>
+</head>
+<body>
+<div id="ld"><h2>⚕ Construyendo Clínica 3D</h2><div class="lb"><div class="lf"></div></div></div>
+<canvas id="c"></canvas>
+<div id="ui">
+  <div class="card"><h1>⚕ Clínica de Salud</h1><p>MAQUETA 3D INTERACTIVA — VISTA COMPLETA</p></div>
+  <div class="card ctrl">
+    <h3>Navegación</h3>
+    <div class="cr"><kbd>Arrastrar</kbd>Rotar</div>
+    <div class="cr"><kbd>Scroll</kbd>Zoom</div>
+    <div class="cr"><kbd>Der+drag</kbd>Desplazar</div>
+  </div>
+</div>
+<div id="btns">
+  <button class="vb on" onclick="setView('iso',this)">Isométrico</button>
+  <button class="vb" onclick="setView('top',this)">Planta</button>
+  <button class="vb" onclick="setView('fr',this)">Frente</button>
+  <button class="vb" onclick="setView('sd',this)">Lateral</button>
+  <button class="vb" id="roofBtn" onclick="toggleRoof()">Techo OFF</button>
+</div>
+<div id="info"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0x0d1117);
+scene.fog=new THREE.Fog(0x0d1117,50,90);
+
+const camera=new THREE.PerspectiveCamera(42,innerWidth/innerHeight,0.1,200);
+camera.position.set(20,18,20);
+
+const renderer=new THREE.WebGLRenderer({canvas:document.getElementById('c'),antialias:true});
+renderer.setSize(innerWidth,innerHeight);
+renderer.shadowMap.enabled=true;
+renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+renderer.toneMapping=THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure=1.2;
+
+// ── LIGHTS ─────────────────────────────────────────────────────────────────
+scene.add(new THREE.AmbientLight(0xfff5e8,0.7));
+
+const sun=new THREE.DirectionalLight(0xfffde8,1.5);
+sun.position.set(14,24,12);
+sun.castShadow=true;
+sun.shadow.mapSize.set(2048,2048);
+sun.shadow.camera.left=-25;sun.shadow.camera.right=25;
+sun.shadow.camera.top=25;sun.shadow.camera.bottom=-25;
+sun.shadow.camera.far=80;sun.shadow.bias=-0.001;
+scene.add(sun);
+
+// ── BUG FIX: use .set() instead of Object.assign for position ──────────────
+const dl2=new THREE.DirectionalLight(0xd0e8ff,0.5);
+dl2.position.set(-10,8,-8);
+scene.add(dl2);
+
+const pt1=new THREE.PointLight(0x6699ff,0.9,14);pt1.position.set(-6,3.5,6);scene.add(pt1);
+const pt2=new THREE.PointLight(0x44ffaa,0.5,10);pt2.position.set(4,3.5,-2);scene.add(pt2);
+const pt3=new THREE.PointLight(0xffcc88,0.4,8);pt3.position.set(0,3.0,2.5);scene.add(pt3);
+
+// ── MATERIALS ──────────────────────────────────────────────────────────────
+const M=(col,em,tr,op,side)=>{
+  const m=new THREE.MeshLambertMaterial({
+    color:col,
+    transparent:!!(tr||op<1),
+    opacity:op==null?1:op,
+    side:side||THREE.FrontSide
+  });
+  if(em)m.emissive=new THREE.Color(em);
+  return m;
+};
+const mFloor  =M(0x7ec8e3);
+const mFloor2 =M(0x5ab8d3);  // alternate tile
+const mWall   =M(0xf2ede0);
+const mWallI  =M(0xeae4d5);
+const mCeil   =M(0xfbf8f0);
+const mRoof   =M(0xddcfb0,null,true,0.15,THREE.DoubleSide);
+const mDesk   =M(0x7a5020);
+const mDeskTop=M(0x9c6828);
+const mBed    =M(0xe2d0aa);
+const mBedF   =M(0xd4c090);
+const mBedBlue=M(0xb8d4f0);  // blue exam bed sheet
+const mPillow =M(0xfffaf0);
+const mChair  =M(0x4a90d9);
+const mChairB =M(0x2a60a9);
+const mLeg    =M(0x999999);
+const mCab    =M(0xc8b890);
+const mCabD   =M(0xb0a070);
+const mMon    =M(0x1a1a1a);
+const mScr    =M(0x55cc88,0x112200);
+const mScrBlue=M(0x4488ff,0x001144);
+const mWin    =M(0x88c4e8,null,true,0.45,THREE.DoubleSide);
+const mDoor   =M(0xa07840,null,true,0.6,THREE.DoubleSide);
+const mDoorF  =M(0x8a6020,null,true,0.5,THREE.DoubleSide);
+const mCross  =M(0xe74c3c,0x550000);
+const mToilet =M(0xf5f0e8);
+const mSink   =M(0xe8e4d8);
+const mRecep  =M(0x8B5E1A);
+const mRecepT =M(0x6b4010);
+const mScale  =M(0xd8d8d8);
+const mPole   =M(0xbbbbbb);
+const mIV     =M(0xcccccc);
+const mIVbag  =M(0xaaddff,null,true,0.7);
+const mToy    =M(0x33aa44,0x003300);
+const mToyR   =M(0xee4422,0x330000);
+const mToyY   =M(0xeecc00,0x221100);
+const mWait   =M(0x3a7fd4);
+const mWaitB  =M(0x2a5a9a);
+const mShelf  =M(0xddccaa);
+const mMed1   =M(0xff6677,null,true,0.88);
+const mMed2   =M(0x77bbff,null,true,0.88);
+const mMed3   =M(0xffcc44,null,true,0.88);
+const mMed4   =M(0xaaffaa,null,true,0.88);
+const mMed5   =M(0xff99cc,null,true,0.88);
+const mMed6   =M(0xcc88ff,null,true,0.88);
+const pMats=[M(0xf08080),M(0x80c0f0),M(0x80f080),M(0xf0f080),M(0xf0c080),M(0xc080f0),
+             M(0xf080c0),M(0x80f0c0),M(0xffaa55),M(0x55aaff),M(0xaaffaa),M(0xffaaff)];
+const mWainscot=M(0xe0d8c8);  // lower wall accent
+const mBaseboard=M(0xd5cdb8);
+
+// ── HELPERS ────────────────────────────────────────────────────────────────
+const add=m=>{m.castShadow=true;m.receiveShadow=true;scene.add(m);return m;};
+const box=(w,h,d,mat,x,y,z,ry=0)=>{
+  const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat);
+  m.position.set(x,y,z);if(ry)m.rotation.y=ry;return add(m);
+};
+const cyl=(rt,rb,h,mat,x,y,z,seg=16)=>{
+  const m=new THREE.Mesh(new THREE.CylinderGeometry(rt,rb,h,seg),mat);
+  m.position.set(x,y,z);return add(m);
+};
+const sph=(r,mat,x,y,z,seg=12)=>{
+  const m=new THREE.Mesh(new THREE.SphereGeometry(r,seg,seg),mat);
+  m.position.set(x,y,z);return add(m);
+};
+function light2(x,z){
+  box(0.55,0.05,0.55,M(0xffffcc,0x888855),x,3.17,z);
+  const p=new THREE.PointLight(0xfffde8,0.32,5.5);p.position.set(x,3.0,z);scene.add(p);
+}
+
+// Room: 10m wide (x: -5→5), 7m deep (z: -3.5→3.5), 3.2m tall
+const WH=3.2,WT=0.16;
+
+// ── FLOOR ──────────────────────────────────────────────────────────────────
+box(10,0.1,7,mFloor,0,0,0);
+// Checkerboard-ish tile grid
+const tl=new THREE.LineBasicMaterial({color:0x5ab0ca,opacity:0.3,transparent:true});
+for(let x=-4.8;x<=4.8;x+=0.6){
+  const g=new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(x,0.056,-3.5),new THREE.Vector3(x,0.056,3.5)]);
+  scene.add(new THREE.Line(g,tl));
+}
+for(let z=-3.5;z<=3.5;z+=0.6){
+  const g=new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-5,0.056,z),new THREE.Vector3(5,0.056,z)]);
+  scene.add(new THREE.Line(g,tl));
+}
+
+// ── BASEBOARDS ─────────────────────────────────────────────────────────────
+box(10,0.08,0.04,mBaseboard,0,0.04,-3.5);
+box(10,0.08,0.04,mBaseboard,0,0.04,3.5);
+box(0.04,0.08,7,mBaseboard,-5,0.04,0);
+box(0.04,0.08,7,mBaseboard,5,0.04,0);
+
+// ── OUTER WALLS ────────────────────────────────────────────────────────────
+box(3.2,WH,WT,mWall,-3.4,WH/2,3.5+WT/2);   // front left
+box(3.2,WH,WT,mWall, 3.4,WH/2,3.5+WT/2);   // front right
+box(10,0.5,WT,mWall,0,WH-0.25,3.5+WT/2);   // lintel
+box(10,WH,WT,mWall,0,WH/2,-3.5-WT/2);      // back
+box(WT,WH,7,mWall,-5-WT/2,WH/2,0);         // left
+box(WT,WH,7,mWall, 5+WT/2,WH/2,0);         // right
+// Wainscot (lower wall decor strip ~0.9m)
+box(10,0.04,0.03,mWainscot,0,0.9,-3.48);
+box(10,0.04,0.03,mWainscot,0,0.9, 3.48);
+box(0.03,0.04,7,mWainscot,-4.98,0.9,0);
+box(0.03,0.04,7,mWainscot, 4.98,0.9,0);
+
+// ── INTERNAL WALL (nurse divider) ──────────────────────────────────────────
+box(WT,WH,3.8,mWallI,0.1,WH/2,-1.6);
+
+// ── BATHROOM WALLS ─────────────────────────────────────────────────────────
+box(1.6,WH,WT,mWallI,-4.2,WH/2,1.0);
+box(WT,WH,2.5,mWallI,-3.4,WH/2,2.25);
+box(1.6,WH,WT,mWallI, 4.2,WH/2,1.0);
+box(WT,WH,2.5,mWallI, 3.4,WH/2,2.25);
+
+// ── CEILING & ROOF ─────────────────────────────────────────────────────────
+const ceilMesh=box(10,0.1,7,mCeil,0,WH+0.05,0);
+const roofG=new THREE.Group();
+const rm=new THREE.Mesh(new THREE.BoxGeometry(10.5,0.14,7.5),mRoof);
+rm.position.set(0,WH+0.18,0);
+roofG.add(rm);
+scene.add(roofG);
+
+// ── CEILING LIGHTS ─────────────────────────────────────────────────────────
+light2(-2.5,-2.5);light2(-2.5,0);
+light2(2.5,-2.5);light2(2.5,0);
+light2(0,2.2);light2(-2.5,2.2);light2(2.5,2.2);
+
+// ── WINDOWS (back wall) ────────────────────────────────────────────────────
+box(1.2,1.0,0.05,mWin,-3.2,WH-0.9,-3.5);
+box(1.4,0.06,0.18,mCab,-3.2,WH-0.42,-3.5);
+box(1.2,1.0,0.05,mWin, 3.2,WH-0.9,-3.5);
+box(1.4,0.06,0.18,mCab, 3.2,WH-0.42,-3.5);
+// Window frames
+box(0.04,1.04,0.06,M(0xccbbaa),-3.2,WH-0.9,-3.5);
+box(0.04,1.04,0.06,M(0xccbbaa), 3.2,WH-0.9,-3.5);
+// Side windows on left wall
+box(0.05,0.9,1.1,mWin,-5,WH-1.0,-2.6);
+box(0.05,0.9,0.9,mWin,-5,WH-1.0, 1.8);
+// Sill
+box(0.2,0.06,1.15,mCab,-4.94,WH-0.57,-2.6);
+box(0.2,0.06,0.95,mCab,-4.94,WH-0.57, 1.8);
+
+// ── DOOR (front, double) ───────────────────────────────────────────────────
+box(1.45,2.4,0.05,mDoor,-0.75,1.2,3.54);
+box(1.45,2.4,0.05,mDoor, 0.75,1.2,3.54);
+// Door handles
+box(0.04,0.04,0.12,M(0xddbb44),-0.08,1.15,3.56);
+box(0.04,0.04,0.12,M(0xddbb44), 0.08,1.15,3.56);
+// Door frame
+box(3.1,0.08,0.1,M(0xc8b080),0,2.42,3.54);
+box(0.08,2.44,0.1,M(0xc8b080),-1.5,1.2,3.54);
+box(0.08,2.44,0.1,M(0xc8b080), 1.5,1.2,3.54);
+
+// ── MEDICAL CROSS (left front wall) ────────────────────────────────────────
+box(0.14,0.52,0.08,mCross,-4.4,2.15,-3.48);
+box(0.52,0.14,0.08,mCross,-4.4,2.15,-3.48);
+// Cross backplate glow
+box(0.65,0.65,0.06,M(0xffffff,0x111111,true,0.12),-4.4,2.15,-3.46);
+
+// ── ZONE FLOOR OVERLAYS ────────────────────────────────────────────────────
+const zn=(w,d,col,x,z,op=0.12)=>{
+  const m=new THREE.Mesh(new THREE.PlaneGeometry(w,d),M(col,null,true,op));
+  m.rotation.x=-Math.PI/2;m.position.set(x,0.057,z);scene.add(m);
+};
+zn(4.8,3.2,0x4a90d9,-2.5,-1.8);
+zn(4.7,3.2,0x27ae60, 2.7,-1.8);
+zn(2.4,2.0,0x8e44ad, 1.2, 1.4);
+zn(5.0,1.8,0xe67e22, 0.0, 2.4);
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ÁREA 1: ENFERMERÍA (left side, -5 to 0, z: -3.5 to 0.5)
+// ═══════════════════════════════════════════════════════════════════════════
+
+// L-shaped desk
+box(2.4,0.08,0.7,mDeskTop,-3.2,0.82,-2.4);
+box(0.7,0.08,1.3,mDeskTop,-4.35,0.82,-1.9);
+box(2.4,0.78,0.06,mDesk,-3.2,0.43,-2.06);
+box(0.06,0.78,1.3,mDesk,-4.0,0.43,-1.9);
+[[-4.1,-2.08],[-4.1,-1.26],[-2.12,-2.08],[-2.12,-2.72]].forEach(([x,z])=>box(0.06,0.8,0.06,mLeg,x,0.42,z));
+
+// Monitor on nurse desk
+box(0.5,0.32,0.04,mMon,-3.0,1.06,-2.4);
+box(0.46,0.28,0.03,mScrBlue,-3.0,1.06,-2.37);
+box(0.05,0.18,0.05,mMon,-3.0,0.92,-2.26);
+box(0.22,0.03,0.18,mMon,-3.0,0.84,-2.26);
+// Keyboard
+box(0.32,0.02,0.12,M(0x333333),-3.0,0.84,-2.16);
+
+// Desk items: phone, clipboard, pen cup
+box(0.12,0.05,0.2,M(0x222222),-3.45,0.85,-2.1);  // phone
+box(0.22,0.015,0.28,M(0xdddddd),-3.68,0.83,-2.36); // clipboard
+cyl(0.05,0.05,0.1,M(0xcc8844),-3.8,0.87,-2.15,8);  // pen cup
+
+// 2 visitor chairs facing desk
+function visitChair(x,z,ry=0){
+  box(0.45,0.05,0.45,mChair,x,0.48,z,ry);
+  box(0.45,0.5,0.05,mChairB,x,0.72,z+(ry===0?0.22:-0.22),ry);
+  [[-0.18,0.18],[0.18,0.18],[-0.18,-0.18],[0.18,-0.18]].forEach(([dx,dz])=>box(0.04,0.46,0.04,mLeg,x+dx*Math.cos(ry)-dz*Math.sin(ry),0.25,z+dx*Math.sin(ry)+dz*Math.cos(ry)));
+}
+visitChair(-2.7,-1.9,0);
+visitChair(-2.1,-1.9,0);
+
+// Nurse rolling chair
+box(0.44,0.05,0.44,mWait,-3.6,0.54,-1.55);
+box(0.44,0.45,0.05,mWaitB,-3.6,0.74,-1.34);
+cyl(0.04,0.04,0.48,mLeg,-3.6,0.27,-1.55);
+cyl(0.08,0.08,0.04,mLeg,-3.6,0.04,-1.55);
+
+// Medical examination bed (nursing)
+box(1.85,0.1,0.8,mBedF,-3.3,0.74,-0.65);
+box(1.85,0.08,0.8,mBed,-3.3,0.66,-0.65);
+[[-4.1,-1.0],[-4.1,-0.3],[-2.55,-1.0],[-2.55,-0.3]].forEach(([x,z])=>box(0.06,0.6,0.06,mLeg,x,0.33,z));
+box(0.42,0.08,0.72,mPillow,-4.08,0.8,-0.65);
+// Bed side rail
+box(1.2,0.06,0.02,M(0xaaaaaa),-3.25,0.85,-1.05);
+
+// Patient on bed (abstract figure)
+box(0.28,0.12,0.64,M(0xf5dfc8),-3.35,0.82,-0.6);  // body
+sph(0.13,M(0xf5dfc8),-3.9,0.88,-0.65);              // head
+box(0.24,0.06,0.2,M(0x4488cc),-3.35,0.84,-0.62);    // patient gown
+
+// LEFT WALL: Medical supply shelving
+box(0.14,2.1,1.9,mShelf,-4.93,1.05,-0.05);
+[-0.3,0.3,0.9,1.5].forEach(sy=>box(0.12,0.025,1.8,mShelf,-4.88,sy,-0.05));
+const medPos=[
+  [-4.88,0.0,-0.7,mMed1],[-4.88,0.0,-0.4,mMed2],[-4.88,0.0,-0.1,mMed3],[-4.88,0.0,0.2,mMed4],[-4.88,0.0,0.5,mMed5],[-4.88,0.0,0.8,mMed1],
+  [-4.88,0.6,-0.7,mMed2],[-4.88,0.6,-0.4,mMed3],[-4.88,0.6,-0.1,mMed1],[-4.88,0.6,0.2,mMed2],[-4.88,0.6,0.5,mMed4],[-4.88,0.6,0.8,mMed6],
+  [-4.88,1.2,-0.6,mMed3],[-4.88,1.2,-0.2,mMed1],[-4.88,1.2,0.2,mMed4],[-4.88,1.2,0.5,mMed2],[-4.88,1.2,0.8,mMed5],
+  [-4.88,1.7,-0.5,mMed1],[-4.88,1.7,-0.1,mMed3],[-4.88,1.7,0.3,mMed2],[-4.88,1.7,0.7,mMed6],
+];
+medPos.forEach(([x,y,z,mat])=>box(0.08,0.16,0.09,mat,x,y+0.1,z));
+[[-4.88,0.0,0.8],[-4.88,0.6,0.8],[-4.88,1.2,0.8]].forEach(([x,y,z])=>cyl(0.04,0.04,0.22,mIVbag,x,y+0.13,z,8));
+
+// IV Pole (near bed)
+cyl(0.025,0.025,2.0,mIV,-4.6,1.1,-0.1);
+cyl(0.15,0.15,0.03,mIV,-4.6,0.12,-0.1);
+[0,1,2,3].forEach(i=>{const a=i*Math.PI/2;box(0.4,0.02,0.04,mIV,-4.6,0.04,-0.1,a);});
+sph(0.09,mIVbag,-4.52,2.08,-0.04);
+sph(0.09,mIVbag,-4.68,2.06,-0.16);
+box(0.22,0.04,0.04,mIV,-4.6,2.12,-0.1);
+// IV tubing
+cyl(0.01,0.01,0.5,M(0xaaddff,null,true,0.7),-4.55,1.83,-0.08);
+
+// Medical rolling cart
+box(0.45,0.6,0.35,mCab,-3.55,0.34,-2.0);
+box(0.45,0.03,0.35,mCabD,-3.55,0.65,-2.0);
+box(0.45,0.03,0.35,mCabD,-3.55,0.35,-2.0);
+[[-3.38,-1.86],[-3.72,-1.86],[-3.38,-2.14],[-3.72,-2.14]].forEach(([x,z])=>cyl(0.04,0.04,0.04,mLeg,x,0.06,z));
+// items on cart top
+box(0.12,0.08,0.09,mMed1,-3.4,0.72,-2.0);
+box(0.12,0.08,0.09,mMed2,-3.6,0.72,-2.0);
+cyl(0.04,0.04,0.14,mIV,-3.55,0.76,-1.84,8);  // syringe
+
+// Handwash station (near exam bed)
+box(0.5,0.04,0.38,M(0xe0ddd5),-2.1,0.88,-0.6);
+cyl(0.14,0.14,0.06,M(0xd8d5cc),-2.1,0.85,-0.6,12);
+cyl(0.04,0.04,0.55,mLeg,-2.1,0.6,-0.6);
+cyl(0.02,0.02,0.12,M(0x777777),-2.1,0.97,-0.52,8);
+// soap dispenser
+box(0.06,0.12,0.06,M(0xff7733),-1.86,0.96,-0.62);
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ÁREA 2: EVALUACIÓN CLÍNICA (right side, x: 0.1 to 5, z: -3.5 to 0.5)
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Exam bed (right side, blue sheets)
+box(1.9,0.1,0.85,mBedF,3.6,0.74,-2.2);
+box(1.9,0.08,0.85,mBedBlue,3.6,0.66,-2.2);
+[[2.7,-2.62],[2.7,-1.78],[4.5,-2.62],[4.5,-1.78]].forEach(([x,z])=>box(0.06,0.6,0.06,mLeg,x,0.33,z));
+box(0.42,0.08,0.78,mPillow,4.48,0.8,-2.2);
+// Protective paper roll on bed edge
+cyl(0.04,0.04,0.9,M(0xeeeeee),2.72,0.76,-2.2,8);
+// Exam lamp (ceiling-mounted arm)
+box(0.06,0.5,0.06,mMon,4.3,3.0,-2.3);
+box(0.5,0.06,0.06,mMon,4.06,2.76,-2.3);
+box(0.28,0.12,0.28,M(0xffffdd,0x888844),3.95,2.64,-2.3);
+// Step stool next to bed
+box(0.3,0.08,0.28,M(0x888888),3.1,0.1,-1.65);
+box(0.25,0.06,0.23,M(0x999999),3.1,0.19,-1.65);
+
+// Patient on exam bed
+box(0.28,0.12,0.66,M(0xf5dfc8),3.6,0.82,-2.2);
+sph(0.13,M(0xf5dfc8),4.46,0.88,-2.2);
+
+// Doctor desk
+box(1.4,0.08,0.65,mDeskTop,0.8,0.82,-2.75);
+box(1.4,0.75,0.06,mDesk,0.8,0.43,-2.45);
+box(0.06,0.75,0.65,mDesk,0.1,0.43,-2.75);
+box(0.06,0.75,0.65,mDesk,1.5,0.43,-2.75);
+[[0.16,-2.48],[1.44,-2.48],[0.16,-3.02],[1.44,-3.02]].forEach(([x,z])=>box(0.05,0.8,0.05,mLeg,x,0.42,z));
+
+// Monitor
+box(0.45,0.3,0.04,mMon,0.8,1.06,-2.75);
+box(0.41,0.26,0.03,mScr,0.8,1.06,-2.72);
+box(0.05,0.16,0.05,mMon,0.8,0.92,-2.62);
+box(0.2,0.02,0.18,mMon,0.8,0.84,-2.62);
+box(0.3,0.02,0.12,M(0x333333),0.8,0.84,-2.52);  // keyboard
+
+// Doctor chair
+box(0.44,0.05,0.44,mWait,0.8,0.54,-2.08);
+box(0.44,0.45,0.05,mWaitB,0.8,0.74,-1.87);
+cyl(0.04,0.04,0.48,mLeg,0.8,0.27,-2.08);
+cyl(0.08,0.08,0.04,mLeg,0.8,0.04,-2.08);
+
+// Vital signs monitor on stand
+cyl(0.025,0.025,0.9,mIV,0.1,0.55,-2.2);
+cyl(0.12,0.12,0.03,mIV,0.1,0.12,-2.2);
+box(0.35,0.25,0.04,mMon,0.1,1.05,-2.2);
+box(0.31,0.21,0.03,mScr,0.1,1.05,-2.17);
+
+// RIGHT WALL: Medical supply shelves
+box(0.14,2.1,1.7,mShelf,4.93,1.05,-2.05);
+[-0.3,0.3,0.9,1.5].forEach(sy=>box(0.12,0.025,1.6,mShelf,4.88,sy,-2.05));
+const rMeds=[
+  [4.88,0.0,-2.7,mMed4],[4.88,0.0,-2.4,mMed1],[4.88,0.0,-2.1,mMed2],[4.88,0.0,-1.8,mMed3],[4.88,0.0,-1.5,mMed5],[4.88,0.0,-1.3,mMed1],
+  [4.88,0.6,-2.7,mMed2],[4.88,0.6,-2.4,mMed3],[4.88,0.6,-2.1,mMed4],[4.88,0.6,-1.8,mMed1],[4.88,0.6,-1.5,mMed6],[4.88,0.6,-1.3,mMed2],
+  [4.88,1.2,-2.6,mMed1],[4.88,1.2,-2.2,mMed3],[4.88,1.2,-1.9,mMed4],[4.88,1.2,-1.6,mMed2],[4.88,1.2,-1.4,mMed5],
+  [4.88,1.7,-2.5,mMed2],[4.88,1.7,-2.1,mMed1],[4.88,1.7,-1.7,mMed3],[4.88,1.7,-1.4,mMed6],
+];
+rMeds.forEach(([x,y,z,mat])=>box(0.08,0.16,0.09,mat,x,y+0.1,z));
+
+// Small cabinet under shelves (eval)
+box(0.45,0.6,0.4,mCab,4.5,0.34,-1.1);
+box(0.45,0.03,0.4,mCabD,4.5,0.65,-1.1);
+box(0.03,0.14,0.14,mDeskTop,4.5,0.38,-1.1); // cabinet handle
+// Biohazard trash can
+cyl(0.14,0.12,0.36,M(0xff4400),3.3,0.2,-1.1);
+cyl(0.15,0.15,0.02,M(0xcc2200),3.3,0.38,-1.1);
+// Hand sanitizer dispenser on wall
+box(0.1,0.2,0.07,M(0xeeeeee),4.96,1.3,-1.4);
+cyl(0.04,0.04,0.06,M(0x4488ff),4.96,1.21,-1.4,8);
+
+// ═══════════════════════════════════════════════════════════════════════════
+// EQUIPOS DE CONSULTORIO (área de evaluación clínica)
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ── BALANZA PEDIÁTRICA (para bebés, tipo bandeja) ─────────────────────────
+// Base con ruedas
+box(0.55,0.05,0.38,M(0xdddddd),3.2,0.52,-0.7);  // base
+box(0.55,0.6,0.04,M(0xbbbbbb),3.2,0.28,-0.9);    // panel trasero
+cyl(0.035,0.035,0.5,M(0xcccccc),3.2,0.27,-0.72,5); // pata central
+cyl(0.07,0.07,0.03,M(0xaaaaaa),3.2,0.04,-0.72,5);   // base disc
+// Bandeja pediátrica (cuna de pesaje)
+box(0.5,0.04,0.34,M(0xffffff),3.2,0.56,-0.7);
+box(0.5,0.07,0.03,M(0xeeeeee),3.2,0.62,-0.53);   // borde frontal
+box(0.5,0.07,0.03,M(0xeeeeee),3.2,0.62,-0.87);   // borde trasero
+box(0.03,0.07,0.34,M(0xeeeeee),3.02,0.62,-0.7);  // borde izq
+box(0.03,0.07,0.34,M(0xeeeeee),3.38,0.62,-0.7);  // borde der
+// Display digital encima
+box(0.18,0.12,0.04,M(0x1a1a1a),3.2,0.72,-0.92);
+box(0.14,0.08,0.03,M(0x44ff88,0x002200),3.2,0.72,-0.9);
+// Papelito de resultado
+box(0.08,0.01,0.06,M(0xffffff),3.2,0.57,-0.9);
+// ruedas de la base
+[[3.06,-0.58],[3.34,-0.58],[3.06,-0.86],[3.34,-0.86]].forEach(([x,z])=>cyl(0.03,0.03,0.04,M(0x555555),x,0.02,z,8));
+
+// ── ESTETOSCOPIO (en gancho pared derecha, consultorio) ───────────────────
+// Auriculares (ear tips)
+sph(0.035,M(0x222222),4.96,1.88,-0.6,8);
+sph(0.035,M(0x222222),4.96,1.88,-0.75,8);
+// Tubos biauriculares  
+cyl(0.012,0.012,0.12,M(0x111111),4.96,1.86,-0.64,6);
+cyl(0.012,0.012,0.12,M(0x111111),4.96,1.86,-0.71,6);
+// Tubo principal colgando (Y-form)
+cyl(0.014,0.014,0.36,M(0x1a1a1a),4.96,1.68,-0.67,6);
+// Diafragma (cabeza)
+cyl(0.06,0.06,0.016,M(0x888888),4.96,1.5,-0.67,16);
+cyl(0.055,0.055,0.01,M(0xdddddd),4.96,1.51,-0.67,16);
+// Gancho en pared
+box(0.04,0.04,0.09,M(0xaaaaaa),4.96,1.93,-0.67);
+
+// ── ESFIGMOMANÓMETRO (tensiómetro, en pared) ──────────────────────────────
+// Unidad en pared (caja)
+box(0.16,0.22,0.08,M(0x555555),4.96,1.6,-1.0);
+box(0.14,0.2,0.06,M(0x2a2a2a),4.96,1.6,-0.97);
+// Manómetro circular (gauge)
+cyl(0.07,0.07,0.04,M(0xeeeeee),4.96,1.72,-0.97,20);
+cyl(0.06,0.06,0.02,M(0xffffff),4.96,1.73,-0.97,20);
+// Aguja del manómetro
+box(0.005,0.05,0.005,M(0xee2222),4.96,1.74,-0.97);
+// Brazalete enrollado (manguito)
+cyl(0.06,0.06,0.04,M(0x2244aa,null,true,0.9),4.96,1.51,-1.0,12);
+cyl(0.05,0.05,0.04,M(0xccccdd,null,true,0.8),4.96,1.51,-1.0,12);
+// Perilla infladora (bulb)
+sph(0.04,M(0x222222),4.94,1.51,-0.92,8);
+// Tubo de conexión
+cyl(0.01,0.01,0.1,M(0x333333),4.96,1.55,-0.96,6);
+
+// ── OTOSCOPIO Y OFTALMOSCOPIO (en soporte de pared) ───────────────────────
+// Panel de soporte mural
+box(0.12,0.4,0.07,M(0x333333),4.96,1.4,-1.22);
+box(0.1,0.38,0.04,M(0x444444),4.96,1.4,-1.19);
+// Cargador base
+cyl(0.025,0.025,0.04,M(0x666666),4.96,1.22,-1.22,6);
+cyl(0.025,0.025,0.04,M(0x666666),4.96,1.57,-1.22,6);
+
+// Otoscopio (en soporte izquierdo)
+cyl(0.025,0.032,0.18,M(0x111111),4.94,1.38,-1.21,8);  // mango
+cyl(0.025,0.012,0.08,M(0x888888),4.94,1.5,-1.21,8);    // cabezal cónico
+box(0.02,0.02,0.02,M(0xffff88,0x333300),4.94,1.53,-1.21); // luz tip
+
+// Oftalmoscopio (en soporte derecho)
+cyl(0.028,0.035,0.2,M(0x1a1a1a),4.98,1.38,-1.22,8);  // mango más largo
+box(0.05,0.06,0.04,M(0x222222),4.98,1.51,-1.22);      // cabezal plano
+cyl(0.015,0.015,0.02,M(0xaaaaff,0x000033),4.98,1.54,-1.22,8); // lente
+
+// ── ESTUCHE DE INSTRUMENTOS EN EL ESCRITORIO ──────────────────────────────
+// Bandeja metálica con instrumentos
+box(0.38,0.02,0.22,M(0xcccccc),1.35,0.84,-2.75);
+box(0.36,0.015,0.2,M(0xeeeeee),1.35,0.85,-2.75);
+
+// Regla clínica (30cm)
+box(0.32,0.008,0.03,M(0xddcc88),1.3,0.86,-2.84);
+// marcas de la regla
+[0.05,0.1,0.15,0.2,0.25].forEach(dx=>box(0.003,0.005,0.02,M(0x888855),1.15+dx,0.866,-2.84));
+
+// Linterna médica (penlight)
+cyl(0.012,0.016,0.14,M(0xddddaa),1.46,0.865,-2.67,8);  // cuerpo metálico
+cyl(0.016,0.012,0.02,M(0x222222),1.46,0.935,-2.67,8);  // punta
+sph(0.01,M(0xffffcc,0x444422),1.46,0.946,-2.67,6);      // foco
+
+// Cinta métrica de perímetro cefálico (rollo)
+cyl(0.04,0.04,0.016,M(0xff8800),1.22,0.858,-2.67,16);  // rollo naranja
+cyl(0.02,0.02,0.016,M(0xcc6600),1.22,0.858,-2.67,8);   // centro del rollo
+// Extremo de la cinta saliendo
+box(0.09,0.003,0.01,M(0xffaa44),1.18,0.86,-2.64);
+
+// Depresor lingual (palito de madera) - pequeño paquete
+box(0.14,0.02,0.04,M(0xddcc99),1.5,0.86,-2.85);
+
+// Termómetro digital en su estuche
+box(0.12,0.025,0.03,M(0x4466aa),1.44,0.862,-2.79);
+sph(0.014,M(0xaaffaa,0x005500),1.5,0.865,-2.79,6);
+
+// Marcador/lápiz clínico
+cyl(0.008,0.008,0.14,M(0x882222),1.2,0.865,-2.84,6);
+
+// ── ESFIGMOMANÓMETRO DE MESA (en escritorio médico) ───────────────────────
+// Unidad de mesa compacta
+box(0.18,0.14,0.12,M(0x3a3a3a),1.5,0.9,-2.55);
+cyl(0.055,0.055,0.03,M(0xeeeeee),1.5,0.98,-2.55,20);
+cyl(0.045,0.045,0.02,M(0xffffff),1.5,0.99,-2.55,20);
+box(0.004,0.042,0.004,M(0xee2222),1.5,0.99,-2.55);
+// Manguito de presión
+box(0.16,0.08,0.04,M(0x2244aa,null,true,0.88),1.5,0.87,-2.44);
+
+// ── SOPORTE DE OTOSCOPIO EXTRA EN MESA ───────────────────────────────────
+// Portaherramientas vertical en mesa
+box(0.07,0.14,0.07,M(0x444444),0.2,0.91,-2.64);
+cyl(0.03,0.035,0.16,M(0x111111),0.2,1.01,-2.64,8);
+cyl(0.03,0.015,0.07,M(0x777777),0.2,1.09,-2.64,8);
+
+// ── CARTILLA DE AGUDEZA VISUAL (snellen chart) en pared ──────────────────
+box(0.32,0.42,0.02,M(0xffffff),0.12,1.6,-3.49);
+// líneas de texto simuladas
+[1.78,1.68,1.57,1.46,1.35,1.24].forEach((y,i)=>{
+  const w=0.28-i*0.04;
+  box(w,0.03,0.01,M(0x222222),0.12,y,-3.48);
+});
+
+// ── CUADRO DE ANATOMÍA EN PARED ───────────────────────────────────────────
+box(0.42,0.55,0.02,M(0xfff8e8),1.8,1.7,-3.49);
+box(0.4,0.53,0.01,M(0xf0e8d0),1.8,1.7,-3.48);
+// contenido del cuadro (figura abstracta)
+sph(0.07,M(0xf5dfc8),1.8,1.98,-3.47,6);   // cabeza
+box(0.1,0.18,0.01,M(0xf5dfc8),1.8,1.8,-3.47);  // torso
+box(0.02,0.08,0.01,M(0xff6655),1.8,1.84,-3.47); // corazón
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ÁREA PESO Y TALLA (center-right, x: 0.1 to 2.4, z: 0.5 to 2.7)
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Puzzle mat tiles
+let pi=0;
+for(let mx=0;mx<4;mx++)for(let mz=0;mz<3;mz++){
+  const t=new THREE.Mesh(new THREE.BoxGeometry(0.56,0.026,0.56),pMats[pi%12]);
+  t.position.set(0.15+mx*0.6,0.056,0.72+mz*0.62);t.receiveShadow=true;scene.add(t);pi++;
+}
+
+// Green dinosaur toy
+sph(0.18,mToy,1.5,0.32,1.4);        // body
+sph(0.11,mToy,1.5,0.49,1.26);       // head
+box(0.28,0.1,0.1,mToy,1.74,0.24,1.5,-0.3); // tail
+[[-0.1,0.12,1.35],[-0.1,0.12,1.47],[0.1,0.12,1.35],[0.1,0.12,1.47]].forEach(([dx,y,z])=>box(0.07,0.18,0.07,mToy,1.5+dx,y,z));
+sph(0.025,M(0xffffff),1.44,0.51,1.17);  // eye
+sph(0.012,M(0x000000),1.44,0.51,1.14);  // pupil
+[0,0.05,0.1].forEach(dy=>box(0.04,0.1,0.04,M(0x228833,0x001100),1.5,0.48+dy*3,1.38-dy));
+
+// More toys on mat
+sph(0.09,mToyR,0.7,0.22,1.85);      // red ball
+box(0.14,0.14,0.14,mToyY,1.1,0.21,2.2); // yellow block
+box(0.1,0.1,0.1,M(0x3388ee),0.9,0.19,1.65);   // blue block
+box(0.1,0.1,0.1,M(0xff8800),1.2,0.21,1.65);   // orange block stacked
+box(0.1,0.1,0.1,M(0xff3388),1.2,0.32,1.65);   // pink block stacked
+// Toy bear sitting
+sph(0.08,M(0xcc8844),0.4,0.2,2.3);   // bear body
+sph(0.055,M(0xddaa66),0.4,0.29,2.3);  // bear head
+sph(0.03,M(0xddaa66),0.38,0.3,2.24);  // ear
+sph(0.03,M(0xddaa66),0.42,0.3,2.24);  // ear
+
+// Scale (digital weight)
+box(0.42,0.04,0.38,mScale,-0.3,0.065,1.5);
+box(0.38,0.02,0.34,M(0xbbbbbb),-0.3,0.086,1.5);
+box(0.1,0.08,0.03,mMon,-0.3,0.12,1.32);
+box(0.08,0.06,0.02,mScr,-0.3,0.12,1.31);
+
+// Tallimeter (height pole)
+box(0.04,2.2,0.06,mPole,2.02,1.15,0.55);
+box(0.08,0.04,0.06,M(0x888888),2.02,0.06,0.55);
+for(let mk=0.2;mk<=2.0;mk+=0.1){
+  const w=mk%0.5<0.05?0.2:0.12;
+  box(w,0.008,0.02,M(0x222222),2.02,mk,0.54);
+}
+box(0.22,0.025,0.05,mPole,2.0,1.4,0.56);  // measuring arm
+// Number label strip on pole
+box(0.035,1.8,0.02,M(0xeeeedd),2.04,1.05,0.54);
+
+// ═══════════════════════════════════════════════════════════════════════════
+// RECEPCIÓN (center, z: 1.5 to 3.2)
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Curved reception counter
+const recAngles=[-60,-30,0,30,60].map(a=>a*Math.PI/180);
+recAngles.forEach(a=>{
+  const rx=0+1.6*Math.sin(a),rz=2.2-1.3*Math.cos(a);
+  const seg=new THREE.Mesh(new THREE.BoxGeometry(0.55,0.88,0.22),mRecep);
+  seg.position.set(rx,0.44,rz);seg.rotation.y=-a;
+  seg.castShadow=true;seg.receiveShadow=true;scene.add(seg);
+  const top=new THREE.Mesh(new THREE.BoxGeometry(0.58,0.06,0.24),mRecepT);
+  top.position.set(rx,0.91,rz);top.rotation.y=-a;
+  top.castShadow=true;scene.add(top);
+});
+// Recep sign (front of counter)
+box(1.2,0.25,0.04,M(0x5a3a0a,0x1a0a00),0,0.55,2.92);
+
+// ── MESA INTERIOR DE RECEPCIÓN (superficie de trabajo del recepcionista) ──
+// Mesa L-shape detrás del mostrador curvo
+box(2.2,0.07,0.65,mDeskTop,0.0,0.88,1.52);           // superficie principal (horizontal)
+box(0.65,0.07,0.9,mDeskTop,-0.95,0.88,1.18);          // ala izquierda (vertical)
+// paneles frontales de la mesa
+box(2.2,0.82,0.05,M(0x7a5020),0.0,0.46,1.85);
+box(0.05,0.82,0.9,M(0x7a5020),-1.26,0.46,1.18);
+box(0.05,0.82,0.9,M(0x7a5020), 1.08,0.46,1.18);
+// patas
+[[-1.05,1.88],[-1.05,1.18],[1.05,1.88],[1.05,1.18]].forEach(([x,z])=>box(0.05,0.82,0.05,mLeg,x,0.46,z));
+// cajón en la mesa
+box(0.4,0.1,0.05,M(0x9c6828),0.3,0.65,1.84);
+box(0.04,0.04,0.04,M(0xccaa44),0.3,0.65,1.82);  // manija cajón
+// bandeja de documentos encima de la mesa
+box(0.32,0.02,0.24,M(0x555555),0.55,0.9,1.68);
+box(0.28,0.04,0.2,M(0xdddddd),0.55,0.92,1.68);  // papeles
+
+// Receptionist chair (moved to match desk position)
+box(0.44,0.05,0.44,mWait,0.0,0.54,1.2);
+box(0.44,0.45,0.05,mWaitB,0.0,0.74,1.0);
+cyl(0.04,0.04,0.48,mLeg,0.0,0.27,1.2);
+cyl(0.08,0.08,0.04,mLeg,0.0,0.04,1.2);
+
+// Computer on reception desk (on top of inner desk surface)
+box(0.32,0.24,0.04,mMon,-0.5,1.08,1.52);
+box(0.28,0.20,0.03,M(0x4499ff,0x001133),-0.5,1.08,1.49);
+box(0.05,0.16,0.05,mMon,-0.5,0.96,1.62);
+box(0.24,0.025,0.18,mMon,-0.5,0.895,1.62);   // monitor base
+box(0.26,0.02,0.14,M(0x333333),-0.5,0.9,1.44);  // keyboard
+// Mouse
+sph(0.03,M(0x222222),-0.28,0.895,1.44,8);
+// Phone on desk
+box(0.1,0.04,0.18,M(0x111111),0.5,0.9,1.52);
+box(0.08,0.025,0.12,M(0x333333),0.5,0.92,1.48);  // handset
+// Name badge / desk placard (visible from front)
+box(0.28,0.09,0.025,M(0xeebb44),0.0,0.945,1.86);
+// Folder & pens on desk
+box(0.2,0.01,0.28,M(0x3355aa),0.7,0.895,1.55);   // blue folder
+cyl(0.025,0.025,0.16,M(0x222222),0.82,0.89,1.52,6); // pen upright in cup
+box(0.06,0.12,0.06,M(0xddbb88),0.82,0.89,1.52);    // pen cup
+
+// ── WAITING CHAIRS (front area, row of 3) ─────────────────────────────────
+[-0.9,0,0.9].forEach(x=>{
+  box(0.44,0.05,0.44,mWait,x,0.48,3.1);
+  box(0.44,0.45,0.05,mWaitB,x,0.72,3.28);
+  [[-0.17,0.17],[0.17,0.17],[-0.17,-0.17],[0.17,-0.17]].forEach(([dx,dz])=>box(0.04,0.46,0.04,mLeg,x+dx,0.25,3.1+dz));
+});
+// Waiting patient abstract figure (seated)
+box(0.28,0.12,0.3,M(0x3366aa),-0.9,0.55,3.1);   // torso (blue shirt)
+sph(0.1,M(0xf5dfc8),-0.9,0.67,3.1);              // head
+
+// Magazine table
+box(0.55,0.04,0.35,M(0x8a6030),0,0.45,3.12);
+[[-0.22,-0.14],[0.22,-0.14],[-0.22,0.14],[0.22,0.14]].forEach(([dx,dz])=>box(0.04,0.44,0.04,M(0x7a5020),dx,0.23,3.12+dz));
+box(0.45,0.02,0.28,M(0xdddddd),0,0.47,3.12);   // magazine on table
+
+// Wall clock (right side)
+cyl(0.2,0.2,0.04,M(0xeeeeee),4.94,2.5,0,16);
+cyl(0.18,0.18,0.02,M(0xffffff),4.94,2.52,0,16);
+box(0.02,0.14,0.02,M(0x222222),4.94,2.52,0);  // hand
+box(0.02,0.02,0.1,M(0xaa2222),4.94,2.52,0);   // second hand
+
+// ── BATHROOMS ─────────────────────────────────────────────────────────────
+function mkBath(side){
+  const bx=side*4.2;
+  // Toilet
+  box(0.36,0.38,0.5,mToilet,bx,0.19,3.0);
+  box(0.36,0.05,0.5,mToilet,bx,0.40,3.0);
+  cyl(0.14,0.14,0.05,mToilet,bx,0.43,2.78,20);
+  box(0.3,0.32,0.12,mToilet,bx,0.58,3.22);
+  // toilet paper holder
+  cyl(0.03,0.03,0.15,M(0x888888),bx+side*0.25,0.7,3.26,8);
+  cyl(0.07,0.07,0.04,M(0xeeeeee),bx+side*0.25,0.7,3.3,12);
+  // Sink
+  const sx=bx+side*(-0.6);
+  box(0.38,0.12,0.34,mSink,sx,0.88,2.55);
+  cyl(0.12,0.12,0.08,mSink,sx,0.88,2.55,12);
+  cyl(0.03,0.03,0.55,mLeg,sx,0.6,2.55);
+  box(0.04,0.04,0.12,mLeg,sx,0.97,2.5);
+  cyl(0.02,0.02,0.08,mLeg,sx,0.97,2.45,8);
+  // Soap & accessories on sink
+  sph(0.05,M(0xffaa55),sx+0.1,0.97,2.5);
+  box(0.12,0.05,0.12,M(0xccccdd),sx-0.1,0.96,2.5);  // soap bar
+  // Mirror above sink
+  box(0.38,0.45,0.03,M(0xbbddee,null,true,0.55,THREE.DoubleSide),sx,1.2,2.5);
+  box(0.4,0.47,0.02,M(0x999888),sx,1.2,2.51);  // mirror frame
+  // Trash can
+  cyl(0.1,0.09,0.22,M(0x888888),bx+side*(-0.38),0.12,3.35,12);
+  // Floor overlay
+  const fl=new THREE.Mesh(new THREE.PlaneGeometry(1.4,2.0),M(0x88ccdd,null,true,0.07));
+  fl.rotation.x=-Math.PI/2;fl.position.set(bx,0.057,2.25);scene.add(fl);
+  // Bathroom door
+  box(0.6,2.1,0.04,M(0xaa8855,null,true,0.6,THREE.DoubleSide),bx,1.05,1.02);
+  // ADA grab bar near toilet
+  box(0.04,0.04,0.4,M(0x888888),bx+side*0.22,0.85,2.95);
+}
+mkBath(-1);mkBath(1);
+
+// ── SIGNAGE / LABELS (canvas textures) ────────────────────────────────────
+function label(text,col,x,z,w=2.2,fontSize=34,opacity=0.95){
+  const cv=document.createElement('canvas');cv.width=512;cv.height=128;
+  const ctx=cv.getContext('2d');
+  // fallback for older browsers without roundRect
+  if(ctx.roundRect){
+    ctx.fillStyle='rgba(8,14,24,0.88)';
+    ctx.beginPath();ctx.roundRect(3,3,506,122,14);ctx.fill();
+    ctx.strokeStyle=col;ctx.lineWidth=2.5;
+    ctx.beginPath();ctx.roundRect(3,3,506,122,14);ctx.stroke();
+  } else {
+    ctx.fillStyle='rgba(8,14,24,0.88)';ctx.fillRect(3,3,506,122);
+    ctx.strokeStyle=col;ctx.lineWidth=2.5;ctx.strokeRect(3,3,506,122);
+  }
+  ctx.fillStyle=col;
+  ctx.font=`700 ${fontSize}px Segoe UI,Arial,sans-serif`;
+  ctx.textAlign='center';ctx.textBaseline='middle';
+  ctx.fillText(text,256,64);
+  const tex=new THREE.CanvasTexture(cv);
+  const m=new THREE.Mesh(
+    new THREE.PlaneGeometry(w,w*0.25),
+    new THREE.MeshBasicMaterial({map:tex,transparent:true,depthWrite:false,side:THREE.DoubleSide})
+  );
+  m.rotation.x=-Math.PI/2;m.position.set(x,0.059,z);scene.add(m);
+}
+label('ÁREA DE ENFERMERÍA','#4a90d9',-2.5,-1.9,2.4);
+label('ÁREA DE EVALUACIÓN CLÍNICA','#27ae60',2.7,-2.0,2.6,26);
+label('PESO Y TALLA','#9b59b6',1.0,1.2,1.8);
+label('RECEPCIÓN','#e67e22',0.0,2.5,1.8);
+label('BAÑO','#7fb3c8',-4.2,2.6,1.2);
+label('BAÑO','#7fb3c8', 4.2,2.6,1.2);
+
+// ── WALL SIGNS ────────────────────────────────────────────────────────────
+// Emergency exit sign (front wall, right side)
+box(0.4,0.18,0.04,M(0x00aa44,0x002200),2.8,2.8,3.54);
+// Room number plates on internal wall
+box(0.22,0.1,0.04,M(0x3355aa,0x001122),0.12,1.8,-0.05);
+box(0.22,0.1,0.04,M(0x3355aa,0x001122),0.12,1.8,-3.3);
+
+// ── CAMERA CONTROL ─────────────────────────────────────────────────────────
+let drag=false,rDrag=false,px=0,py=0;
+let theta=Math.PI/4,phi=1.02,radius=26,panX=0,panZ=0;
+let tTheta=theta,tPhi=phi,tRadius=radius,tPanX=0,tPanZ=0;
+
+const cvs=document.getElementById('c');
+cvs.addEventListener('mousedown',e=>{drag=true;rDrag=e.button===2;px=e.clientX;py=e.clientY;});
+cvs.addEventListener('contextmenu',e=>e.preventDefault());
+window.addEventListener('mouseup',()=>drag=false);
+window.addEventListener('mousemove',e=>{
+  if(!drag)return;
+  const dx=e.clientX-px,dy=e.clientY-py;
+  if(rDrag){panX-=dx*0.018;panZ-=dy*0.018;}
+  else{theta-=dx*0.007;phi=Math.max(0.12,Math.min(1.52,phi-dy*0.006));}
+  px=e.clientX;py=e.clientY;
+  tTheta=theta;tPhi=phi;tPanX=panX;tPanZ=panZ;
+});
+cvs.addEventListener('wheel',e=>{radius=Math.max(5,Math.min(48,radius+e.deltaY*0.04));tRadius=radius;});
+// Touch
+let pt0=0;
+cvs.addEventListener('touchstart',e=>{
+  if(e.touches.length===1){drag=true;px=e.touches[0].clientX;py=e.touches[0].clientY;}
+  if(e.touches.length===2){pt0=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);}
+});
+cvs.addEventListener('touchend',()=>drag=false);
+cvs.addEventListener('touchmove',e=>{
+  e.preventDefault();
+  if(e.touches.length===1&&drag){
+    const dx=e.touches[0].clientX-px,dy=e.touches[0].clientY-py;
+    theta-=dx*0.009;phi=Math.max(0.12,Math.min(1.52,phi-dy*0.007));
+    px=e.touches[0].clientX;py=e.touches[0].clientY;
+    tTheta=theta;tPhi=phi;
+  }
+  if(e.touches.length===2){
+    const d=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);
+    radius=Math.max(5,Math.min(48,radius-(d-pt0)*0.1));
+    tRadius=radius;pt0=d;
+  }
+},{passive:false});
+
+const viewPresets={iso:[Math.PI/4,1.0,26,0,0],top:[0,0.08,28,0,0],fr:[0,0.55,22,0,0],sd:[Math.PI/2,0.55,22,0,0]};
+function setView(k,btn){
+  const[t,p,r,px2,pz2]=viewPresets[k];
+  tTheta=t;tPhi=p;tRadius=r;tPanX=px2;tPanZ=pz2;
+  document.querySelectorAll('.vb').forEach(b=>b.classList.remove('on'));
+  btn.classList.add('on');
+}
+
+let roofOn=true;
+function toggleRoof(){
+  roofOn=!roofOn;
+  roofG.visible=roofOn;
+  ceilMesh.visible=roofOn;
+  document.getElementById('roofBtn').textContent=roofOn?'Techo OFF':'Techo ON';
+}
+
+// ── ANIMATION ──────────────────────────────────────────────────────────────
+let t=0;
+function animate(){
+  requestAnimationFrame(animate);
+  t+=0.016;
+  // subtle monitor screen flicker
+  if(mScr.emissive) mScr.emissive.setHex(0x112200+(Math.sin(t*2)>0.98?0x010100:0));
+  theta+=(tTheta-theta)*0.1;
+  phi+=(tPhi-phi)*0.1;
+  radius+=(tRadius-radius)*0.1;
+  panX+=(tPanX-panX)*0.1;
+  panZ+=(tPanZ-panZ)*0.1;
+  camera.position.x=panX+radius*Math.sin(theta)*Math.sin(phi);
+  camera.position.y=radius*Math.cos(phi);
+  camera.position.z=panZ+radius*Math.cos(theta)*Math.sin(phi);
+  camera.lookAt(panX,1.2,panZ);
+  renderer.render(scene,camera);
+}
+animate();
+
+window.addEventListener('resize',()=>{
+  camera.aspect=innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight);
+});
+
+// Hide loading screen
+setTimeout(()=>{
+  const l=document.getElementById('ld');
+  l.style.transition='opacity .7s';l.style.opacity=0;
+  setTimeout(()=>l.style.display='none',700);
+},2400);
+</script>
+</body>
+</html>
